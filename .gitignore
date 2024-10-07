@@ -6,6 +6,8 @@ data
 data_local
 .vscode
 _wandb
+venv
+.venv
 
 **/.DS_Store
 

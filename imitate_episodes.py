@@ -28,6 +28,9 @@ logging.basicConfig(filename='optimizing_imitate_episodes.log', encoding='utf-8'
 def log_timestamp(message: str):
     logger.info(f"{message}: {datetime.now()}")
 
+def save_profile_stats(profiler):
+    profiler.dump_stats('profilestats.txt')
+
 
 def main(args):
     set_seed(1)
@@ -117,9 +120,15 @@ def main(args):
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
 
+    profiler = cProfile.Profile()
     log_timestamp("Begin train")
+
+    profiler.enable()
     best_ckpt_info = train_bc(train_dataloader, val_dataloader, config)
+    profiler.disable()
     log_timestamp("End train")
+
+    save_profile_stats(profiler)
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
 
     # save best checkpoint

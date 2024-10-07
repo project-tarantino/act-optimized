@@ -347,9 +347,13 @@ def train_bc(train_dataloader, val_dataloader, config):
 
     set_seed(seed)
 
+    log_timestamp("Making policy")
     policy = make_policy(policy_class, policy_config)
+    log_timestamp("Made policy. Applying Cuda.")
     policy.cuda()
+    log_timestamp("Applied Cuda. Making Optimizer.")
     optimizer = make_optimizer(policy_class, policy)
+    log_timestamp("Made optimizer. Going through epochs.")
 
     train_history = []
     validation_history = []
@@ -400,14 +404,19 @@ def train_bc(train_dataloader, val_dataloader, config):
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
+    
+    log_timestamp("Looped through epochs. Saving checkpoint")
 
     ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     torch.save(policy.state_dict(), ckpt_path)
+    log_timestamp("Saved checkpoint. saving best checkpoint.")
 
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{best_epoch}_seed_{seed}.ckpt')
     torch.save(best_state_dict, ckpt_path)
     print(f'Training finished:\nSeed {seed}, val loss {min_val_loss:.6f} at epoch {best_epoch}')
+
+    log_timestamp("Saved best checkpoint. Saving training curves.")
 
     # save training curves
     plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed)
@@ -452,4 +461,4 @@ if __name__ == '__main__':
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     
-    cProfile.run('main(vars(parser.parse_args()))', filename="profilestats.txt", sort='ncalls')
+    main(vars(parser.parse_args()))

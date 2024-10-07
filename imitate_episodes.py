@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import logging
+from datetime import datetime
 import os
 import pickle
 import argparse
@@ -19,8 +21,13 @@ import cProfile
 
 from sim_env import BOX_POSE
 
-import IPython
-e = IPython.embed
+logger = logging.getLogger(__name__)
+logging.basicConfig(filename='optimizing_imitate_episodes.log', encoding='utf-8', level=logging.INFO, force=True)
+
+
+def log_timestamp(message: str):
+    logger.info(f"{message}: {datetime.now()}")
+
 
 def main(args):
     set_seed(1)
@@ -110,7 +117,9 @@ def main(args):
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
 
+    log_timestamp("Begin train")
     best_ckpt_info = train_bc(train_dataloader, val_dataloader, config)
+    log_timestamp("End train")
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
 
     # save best checkpoint
@@ -415,6 +424,7 @@ def plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed):
 
 
 if __name__ == '__main__':
+    log_timestamp("Start")
     parser = argparse.ArgumentParser()
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--onscreen_render', action='store_true')

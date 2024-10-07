@@ -388,14 +388,40 @@ def train_bc(train_dataloader, val_dataloader, config):
         training_time_start = time.time()
         policy.train()
         optimizer.zero_grad()
+        logger.info(f"policy.train took: {time.time() - training_time_start}")
+        logger.info(f"train_dataloader length: {len(train_dataloader)}")
+        time_benchmarks = {"forward_pass": [], "backward_pass": [], "optimizer": [], "optimizer_zero_grad": []}
         for batch_idx, data in enumerate(train_dataloader):
+            forward_pass_time_start = time.time()
             forward_dict = forward_pass(data, policy)
+            fwd_pass_time = time.time()- forward_pass_time_start
+            logger.info(f"foward pass took: {fwd_pass_time}")
+            time_benchmarks["forward_pass"].append(fwd_pass_time)
+
             # backward
             loss = forward_dict['loss']
+            backwarad_time_start = time.time()
             loss.backward()
+            back_pass_time = time.time()- backwarad_time_start
+            logger.info(f"backward pass took: {back_pass_time}")
+            time_benchmarks["backward_pass"].append(back_pass_time)
+
+            optimizer_step_start = time.time()
             optimizer.step()
+            opt_time = time.time()- optimizer_step_start
+            logger.info(f"optimizer step took: {opt_time}")
+            time_benchmarks["optimizer"].append(opt_time)
+
+            optimizer_zero_grad_start = time.time()
             optimizer.zero_grad()
+            opt_z = time.time()- optimizer_zero_grad_start
+            logger.info(f"optimizer zero grad took: {opt_z}")
+            time_benchmarks["optimizer_zero_grad"].append(opt_z)
+
             train_history.append(detach_dict(forward_dict))
+        logger.info(f"Epoch {epoch}, TRAINING STEPS total times:")
+        for step_name, times in time_benchmarks.items():
+            logger.info(f"{step_name}: {sum(times)}")
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')

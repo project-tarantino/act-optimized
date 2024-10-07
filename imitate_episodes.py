@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import logging
+import time
 from datetime import datetime
 import os
 import pickle
@@ -363,6 +364,7 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(f'\nEpoch {epoch}')
         # validation
         with torch.inference_mode():
+            inference_time_start = time.time()
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
@@ -376,12 +378,14 @@ def train_bc(train_dataloader, val_dataloader, config):
                 min_val_loss = epoch_val_loss
                 best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
         print(f'Val loss:   {epoch_val_loss:.5f}')
+        inference_time_taken = time.time() - inference_time_start
         summary_string = ''
         for k, v in epoch_summary.items():
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
         # training
+        training_time_start = time.time()
         policy.train()
         optimizer.zero_grad()
         for batch_idx, data in enumerate(train_dataloader):
@@ -395,6 +399,7 @@ def train_bc(train_dataloader, val_dataloader, config):
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')
+        training_time_taken = time.time() - training_time_start
         summary_string = ''
         for k, v in epoch_summary.items():
             summary_string += f'{k}: {v.item():.3f} '
@@ -404,6 +409,8 @@ def train_bc(train_dataloader, val_dataloader, config):
             ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{epoch}_seed_{seed}.ckpt')
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
+
+        logger.info(f"Epoch {epoch} - inference time taken: {inference_time_taken}, training time taken: {training_time_taken}")
     
     log_timestamp("Looped through epochs. Saving checkpoint")
 

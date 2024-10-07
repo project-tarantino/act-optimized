@@ -15,6 +15,7 @@ from utils import sample_box_pose, sample_insertion_pose # robot functions
 from utils import compute_dict_mean, set_seed, detach_dict # helper functions
 from policy import ACTPolicy, CNNMLPPolicy
 from visualize_episodes import save_videos
+import cProfile
 
 from sim_env import BOX_POSE
 
@@ -432,4 +433,4 @@ if __name__ == '__main__':
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     
-    main(vars(parser.parse_args()))
+    cProfile.run('main(vars(parser.parse_args()))', filename="profilestats.txt", sort='ncalls')

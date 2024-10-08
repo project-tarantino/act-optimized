@@ -138,7 +138,7 @@ def main(args):
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
 
 
-def make_policy(policy_class, policy_config):
+def make_policy(policy_class, policy_config) -> ACTPolicy | CNNMLPPolicy:
     if policy_class == 'ACT':
         policy = ACTPolicy(policy_config)
     elif policy_class == 'CNNMLP':
@@ -187,6 +187,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     policy = make_policy(policy_class, policy_config)
     loading_status = policy.load_state_dict(torch.load(ckpt_path))
     print(loading_status)
+    logger.info(msg=f"torch is available? -> {torch.cuda.is_available()}")
     policy.cuda()
     policy.eval()
     print(f'Loaded: {ckpt_path}')
@@ -345,6 +346,7 @@ def train_bc(train_dataloader, val_dataloader, config):
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+    logger.info(msg=f"torch is available? -> {torch.cuda.is_available()}")
 
     set_seed(seed)
 

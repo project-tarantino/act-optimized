@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import logging
+import time
 from datetime import datetime
 import os
 import pickle
@@ -27,6 +28,9 @@ logging.basicConfig(filename='optimizing_imitate_episodes.log', encoding='utf-8'
 
 def log_timestamp(message: str):
     logger.info(f"{message}: {datetime.now()}")
+
+def save_profile_stats(profiler):
+    profiler.dump_stats('profilestats.txt')
 
 
 def main(args):
@@ -117,9 +121,15 @@ def main(args):
     with open(stats_path, 'wb') as f:
         pickle.dump(stats, f)
 
+    profiler = cProfile.Profile()
     log_timestamp("Begin train")
+
+    profiler.enable()
     best_ckpt_info = train_bc(train_dataloader, val_dataloader, config)
+    profiler.disable()
     log_timestamp("End train")
+
+    save_profile_stats(profiler)
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
 
     # save best checkpoint
@@ -128,7 +138,7 @@ def main(args):
     print(f'Best ckpt, val loss {min_val_loss:.6f} @ epoch{best_epoch}')
 
 
-def make_policy(policy_class, policy_config):
+def make_policy(policy_class, policy_config) -> ACTPolicy | CNNMLPPolicy:
     if policy_class == 'ACT':
         policy = ACTPolicy(policy_config)
     elif policy_class == 'CNNMLP':
@@ -177,6 +187,7 @@ def eval_bc(config, ckpt_name, save_episode=True):
     policy = make_policy(policy_class, policy_config)
     loading_status = policy.load_state_dict(torch.load(ckpt_path))
     print(loading_status)
+    logger.info(msg=f"torch is available? -> {torch.cuda.is_available()}")
     policy.cuda()
     policy.eval()
     print(f'Loaded: {ckpt_path}')
@@ -335,12 +346,17 @@ def train_bc(train_dataloader, val_dataloader, config):
     seed = config['seed']
     policy_class = config['policy_class']
     policy_config = config['policy_config']
+    logger.info(msg=f"torch is available? -> {torch.cuda.is_available()}")
 
     set_seed(seed)
 
+    log_timestamp("Making policy")
     policy = make_policy(policy_class, policy_config)
+    log_timestamp("Made policy. Applying Cuda.")
     policy.cuda()
+    log_timestamp("Applied Cuda. Making Optimizer.")
     optimizer = make_optimizer(policy_class, policy)
+    log_timestamp("Made optimizer. Going through epochs.")
 
     train_history = []
     validation_history = []
@@ -350,6 +366,7 @@ def train_bc(train_dataloader, val_dataloader, config):
         print(f'\nEpoch {epoch}')
         # validation
         with torch.inference_mode():
+            inference_time_start = time.time()
             policy.eval()
             epoch_dicts = []
             for batch_idx, data in enumerate(val_dataloader):
@@ -363,25 +380,54 @@ def train_bc(train_dataloader, val_dataloader, config):
                 min_val_loss = epoch_val_loss
                 best_ckpt_info = (epoch, min_val_loss, deepcopy(policy.state_dict()))
         print(f'Val loss:   {epoch_val_loss:.5f}')
+        inference_time_taken = time.time() - inference_time_start
         summary_string = ''
         for k, v in epoch_summary.items():
             summary_string += f'{k}: {v.item():.3f} '
         print(summary_string)
 
         # training
+        training_time_start = time.time()
         policy.train()
         optimizer.zero_grad()
+        logger.info(f"policy.train took: {time.time() - training_time_start}")
+        logger.info(f"train_dataloader length: {len(train_dataloader)}")
+        time_benchmarks = {"forward_pass": [], "backward_pass": [], "optimizer": [], "optimizer_zero_grad": []}
         for batch_idx, data in enumerate(train_dataloader):
+            forward_pass_time_start = time.time()
             forward_dict = forward_pass(data, policy)
+            fwd_pass_time = time.time()- forward_pass_time_start
+            logger.info(f"foward pass took: {fwd_pass_time}")
+            time_benchmarks["forward_pass"].append(fwd_pass_time)
+
             # backward
             loss = forward_dict['loss']
+            backwarad_time_start = time.time()
             loss.backward()
+            back_pass_time = time.time()- backwarad_time_start
+            logger.info(f"backward pass took: {back_pass_time}")
+            time_benchmarks["backward_pass"].append(back_pass_time)
+
+            optimizer_step_start = time.time()
             optimizer.step()
+            opt_time = time.time()- optimizer_step_start
+            logger.info(f"optimizer step took: {opt_time}")
+            time_benchmarks["optimizer"].append(opt_time)
+
+            optimizer_zero_grad_start = time.time()
             optimizer.zero_grad()
+            opt_z = time.time()- optimizer_zero_grad_start
+            logger.info(f"optimizer zero grad took: {opt_z}")
+            time_benchmarks["optimizer_zero_grad"].append(opt_z)
+
             train_history.append(detach_dict(forward_dict))
+        logger.info(f"Epoch {epoch}, TRAINING STEPS total times:")
+        for step_name, times in time_benchmarks.items():
+            logger.info(f"{step_name}: {sum(times)}")
         epoch_summary = compute_dict_mean(train_history[(batch_idx+1)*epoch:(batch_idx+1)*(epoch+1)])
         epoch_train_loss = epoch_summary['loss']
         print(f'Train loss: {epoch_train_loss:.5f}')
+        training_time_taken = time.time() - training_time_start
         summary_string = ''
         for k, v in epoch_summary.items():
             summary_string += f'{k}: {v.item():.3f} '
@@ -392,13 +438,20 @@ def train_bc(train_dataloader, val_dataloader, config):
             torch.save(policy.state_dict(), ckpt_path)
             plot_history(train_history, validation_history, epoch, ckpt_dir, seed)
 
+        logger.info(f"Epoch {epoch} - inference time taken: {inference_time_taken}, training time taken: {training_time_taken}")
+    
+    log_timestamp("Looped through epochs. Saving checkpoint")
+
     ckpt_path = os.path.join(ckpt_dir, f'policy_last.ckpt')
     torch.save(policy.state_dict(), ckpt_path)
+    log_timestamp("Saved checkpoint. saving best checkpoint.")
 
     best_epoch, min_val_loss, best_state_dict = best_ckpt_info
     ckpt_path = os.path.join(ckpt_dir, f'policy_epoch_{best_epoch}_seed_{seed}.ckpt')
     torch.save(best_state_dict, ckpt_path)
     print(f'Training finished:\nSeed {seed}, val loss {min_val_loss:.6f} at epoch {best_epoch}')
+
+    log_timestamp("Saved best checkpoint. Saving training curves.")
 
     # save training curves
     plot_history(train_history, validation_history, num_epochs, ckpt_dir, seed)
@@ -443,4 +496,4 @@ if __name__ == '__main__':
     parser.add_argument('--dim_feedforward', action='store', type=int, help='dim_feedforward', required=False)
     parser.add_argument('--temporal_agg', action='store_true')
     
-    cProfile.run('main(vars(parser.parse_args()))', filename="profilestats.txt", sort='ncalls')
+    main(vars(parser.parse_args()))
